@@ -17,7 +17,9 @@ Use GitHub's private vulnerability reporting: open the repository's **Security**
 | Threat | Mitigation |
 | --- | --- |
 | Someone other than the owner connects a client | Authorization requires a Google sign-in whose verified email is in `OWNER_EMAILS`, followed by an explicit approval step. Removing an email from the list invalidates its sessions and tokens. |
-| A malicious client tricks the owner into approving it | The consent page names the client and the origin it will redirect to. Redirect URIs must match the registration exactly (RFC 8252 port relaxation applies to loopback only). PKCE S256 is mandatory. |
+| A malicious client tricks the owner into approving it | The consent page names the client and the origin it will redirect to. Redirect URIs must match the registration exactly (RFC 8252 port relaxation applies to loopback only). PKCE S256 is mandatory. Set `ALLOWED_REDIRECT_ORIGINS` to refuse every client that redirects anywhere else. |
+| A connected client is compromised or no longer wanted | The admin page lists connected clients and revokes a client's tokens in one click. |
+| IMAP password sent in clear | Implicit TLS by default. Without it, STARTTLS is required for every host except loopback, so a stripped STARTTLS capability fails the connection instead of downgrading it. |
 | CSRF against the admin UI or consent | Server-side sessions, `__Host-` cookie with `HttpOnly`, `Secure` and `SameSite=Lax`, plus a per-session CSRF token on every POST |
 | A stolen refresh token | Refresh tokens rotate on use. Replaying an old token more than 120 seconds after rotation revokes the whole grant. Access tokens live for one hour. |
 | SSRF through Client ID Metadata Documents | Only `https` URLs, hosts that resolve to public addresses only, no redirects, 5-second timeout, 16 KB size limit. DNS rebinding between the check and the fetch is not prevented. |

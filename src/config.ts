@@ -17,6 +17,11 @@ const schema = z.object({
   MICROSOFT_CLIENT_ID: z.string().optional(),
   MICROSOFT_CLIENT_SECRET: z.string().optional(),
   MICROSOFT_TENANT: z.string().default('common'),
+  ALLOWED_REDIRECT_ORIGINS: z
+    .string()
+    .default('')
+    .transform(list)
+    .pipe(z.array(z.url().transform((u) => new URL(u).origin))),
 });
 
 export type Config = z.infer<typeof schema>;

@@ -21,7 +21,10 @@ export interface TestServer {
   close(): Promise<void>;
 }
 
-export async function startServer(options: AppOptions = {}): Promise<TestServer> {
+export async function startServer(
+  options: AppOptions = {},
+  env: Record<string, string> = {},
+): Promise<TestServer> {
   const server = createServer();
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -33,6 +36,7 @@ export async function startServer(options: AppOptions = {}): Promise<TestServer>
     OWNER_EMAILS: OWNER,
     GOOGLE_CLIENT_ID: 'google-client',
     GOOGLE_CLIENT_SECRET: 'google-secret',
+    ...env,
   });
   const db = openDb(':memory:');
   const keyring = new Keyring(config.INBOXMUX_ENCRYPTION_KEY);

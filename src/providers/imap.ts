@@ -23,6 +23,7 @@ export interface ImapConfig {
 }
 
 const SUMMARY_SOURCE_BYTES = 24_576;
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
 const unb64 = (s: string) => Buffer.from(s, 'base64url').toString('utf8');
@@ -213,6 +214,7 @@ export class ImapProvider implements MailProvider {
       host: this.config.host,
       port: this.config.port,
       secure: this.config.secure,
+      doSTARTTLS: this.config.secure || LOOPBACK_HOSTS.has(this.config.host) ? undefined : true,
       auth: { user: this.config.user, pass: this.password },
       logger: false,
       disableAutoIdle: true,

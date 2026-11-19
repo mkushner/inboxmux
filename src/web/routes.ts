@@ -88,6 +88,27 @@ export function webRoutes({ db, config, accounts, mail, auth }: Deps): Router {
 
   router.get('/', (_req, res) => res.redirect(302, '/admin'));
 
+  router.get('/privacy', (_req, res) => {
+    res.type('html').send(
+      layout(
+        'Privacy',
+        html`<h1>Privacy</h1>
+        <p>This is a self-hosted <a href="https://github.com/mkushner/inboxmux">inboxmux</a> server, operated for its
+        owner only (${new URL(config.PUBLIC_URL).host}).</p>
+        <ul>
+          <li>It reads mail from accounts the owner connects, with read-only access (Gmail <code>gmail.readonly</code>,
+          Microsoft <code>Mail.Read</code>, IMAP), and only to answer the owner's own requests through their MCP client.</li>
+          <li>Message content is fetched on demand and not stored. Stored data is limited to account settings,
+          encrypted credentials and an audit log of tool calls without message content.</li>
+          <li>Nothing is sold, shared with third parties or used for advertising. Google user data is handled in line
+          with the Google API Services User Data Policy, including its Limited Use requirements.</li>
+          <li>Disconnecting an account in the admin page deletes its stored credentials. You can also revoke access at
+          <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+        </ul>`,
+      ),
+    );
+  });
+
   const signInLimit = rateLimit({
     windowMs: 15 * 60_000,
     limit: 50,
@@ -244,6 +265,14 @@ export function webRoutes({ db, config, accounts, mail, auth }: Deps): Router {
     const presets = Object.entries(IMAP_PRESETS).map(
       ([key, p]) => html`<option value="${key}">${p.label} (${p.host})</option>`,
     );
+    const grants = auth.listGrants(session.userId).map(
+      (g) => html`<tr>
+        <td><strong>${g.clientName ?? 'Unnamed client'}</strong><br><span class="muted">${g.clientId}</span></td>
+        <td>${g.redirectUris.join(', ')}</td>
+        <td>${g.lastRefreshedAt.toISOString().slice(0, 16).replace('T', ' ')} UTC</td>
+        <td><form class="inline" method="post" action="/admin/grants/${g.familyId}/revoke">${csrf(session)}
+          <button>Revoke</button></form></td></tr>`,
+    );
     return layout(
       'Accounts',
       html`<h1>Mail accounts</h1>
@@ -251,10 +280,21 @@ export function webRoutes({ db, config, accounts, mail, auth }: Deps): Router {
       ${
         list.length
           ? html`<table><thead><tr><th>Account</th><th>Provider</th><th>Status</th><th></th></tr></thead>
-        <tbody>${rows}</tbody></table>`
+        <tbody>${rows}</tbody></table>
+        <p class="muted">Remove deletes the credentials stored here. To also revoke access at the provider, use
+        <a href="https://myaccount.google.com/permissions">Google account permissions</a> or
+        <a href="https://myaccount.microsoft.com/">Microsoft account</a> → app permissions.</p>`
           : html`<p class="muted">No accounts yet.</p>`
       }
+      <h2>Connected clients</h2>
+      ${
+        grants.length
+          ? html`<table><thead><tr><th>Client</th><th>Redirects to</th><th>Last token refresh</th><th></th></tr></thead>
+        <tbody>${grants}</tbody></table>`
+          : html`<p class="muted">No MCP clients are connected.</p>`
+      }
       <h2>Connect Gmail or Google Workspace</h2>
+      <p class="muted">The alias is the short name you will use in Claude. You pick the Google account on the next screen.</p>
       <form method="post" action="/admin/accounts/gmail" class="row">${csrf(session)}
         <input name="alias" placeholder="alias, e.g. personal" required pattern="[a-z0-9][a-z0-9-]{0,31}">
         <button class="primary">Connect with Google</button></form>
@@ -273,7 +313,7 @@ export function webRoutes({ db, config, accounts, mail, auth }: Deps): Router {
           <label>Provider</label><select name="preset"><option value="">Other (enter host below)</option>${presets}</select>
           <label>Host (other only)</label><input name="host" placeholder="imap.example.com">
           <label>Port (other only)</label><input name="port" type="number" value="993">
-          <label><input type="checkbox" name="secure" checked> TLS (port 993)</label>
+          <label><input type="checkbox" name="secure" checked> Implicit TLS (port 993); unchecked requires STARTTLS</label>
           <label>Username</label><input name="user" required autocomplete="off">
           <label>Password or app password</label><input name="password" type="password" required autocomplete="new-password">
         </fieldset>
@@ -293,6 +333,11 @@ export function webRoutes({ db, config, accounts, mail, auth }: Deps): Router {
 
   router.get('/admin', requireOwner, (req, res) => {
     res.type('html').send(renderAdmin(req.session as Session));
+  });
+
+  router.post('/admin/grants/:familyId/revoke', requireOwner, (req, res) => {
+    auth.revokeGrant((req.session as Session).userId, req.params.familyId as string);
+    res.redirect(303, '/admin');
   });
 
   const aliasProblem = (session: Session, alias: string) => {

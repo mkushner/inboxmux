@@ -244,3 +244,69 @@ describe('refresh tokens', () => {
     expect(live.n).toBe(0);
   });
 });
+
+describe('connected clients', () => {
+  it('lists each grant once and revokes it from the admin page', async () => {
+    const { accessToken, refreshToken, clientId, userId } = await connectedToken(t);
+    await tokenRequest(t, { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId });
+    await tokenRequest(t, { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId });
+    const grants = t.app.auth.listGrants(userId);
+    expect(grants).toHaveLength(1);
+    expect(grants[0]).toMatchObject({ clientId, clientName: 'Test Client', redirectUris: [REDIRECT_URI] });
+
+    const { cookie } = ownerSession(t.db);
+    const page = await (await fetch(`${t.url}/admin`, { headers: { cookie } })).text();
+    expect(page).toContain('Test Client');
+    const revoke = await fetch(`${t.url}/admin/grants/${grants[0]?.familyId}/revoke`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf: 'csrf-token' }),
+    });
+    expect(revoke.status).toBe(303);
+    expect(t.app.auth.listGrants(userId)).toHaveLength(0);
+    const res = await fetch(t.mcpUrl, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('ALLOWED_REDIRECT_ORIGINS', () => {
+  it('rejects registrations and metadata documents that redirect elsewhere, allowing loopback on any port', async () => {
+    const restricted = await startServer(
+      {
+        fetchClientMetadata: async (clientId) => ({
+          client_id: clientId,
+          redirect_uris: ['https://evil.example/cb'],
+          token_endpoint_auth_method: 'none',
+        }),
+      },
+      { ALLOWED_REDIRECT_ORIGINS: 'https://claude.ai,http://localhost' },
+    );
+    try {
+      const register = (redirect: string) =>
+        fetch(`${restricted.url}/register`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ redirect_uris: [redirect], token_endpoint_auth_method: 'none' }),
+        });
+      expect((await register('https://evil.example/cb')).status).toBe(400);
+      expect((await register('https://claude.ai/api/mcp/auth_callback')).status).toBe(201);
+      expect((await register('http://localhost:53682/callback')).status).toBe(201);
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: CIMD_ID,
+        code_challenge: 'x'.repeat(43),
+        code_challenge_method: 'S256',
+      });
+      const authorize = await fetch(`${restricted.url}/authorize?${params}`, { redirect: 'manual' });
+      expect(authorize.status).toBe(400);
+    } finally {
+      await restricted.close();
+    }
+  });
+});

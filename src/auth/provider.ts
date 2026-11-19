@@ -28,6 +28,12 @@ const AUTHORIZE_TTL = 600;
 const CIMD_CACHE_TTL = 86_400;
 export const REFRESH_REUSE_GRACE = 120;
 const SUPPORTED_AUTH_METHODS = ['none', 'client_secret_post'];
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function redirectOrigin(uri: string): string {
+  const url = new URL(uri);
+  return LOOPBACK.has(url.hostname) ? `${url.protocol}//${url.hostname}` : url.origin;
+}
 
 export interface PendingAuthorization {
   clientId: string;
@@ -58,16 +64,23 @@ export class InboxmuxAuthProvider implements OAuthServerProvider {
     private readonly db: DB,
     private readonly mcpUrl: string,
     private readonly ownerEmails: string[],
+    private readonly allowedRedirectOrigins: string[],
     private readonly fetchMetadata = fetchClientMetadata,
   ) {
     this.clientsStore = {
-      getClient: (clientId) => this.getClient(clientId),
+      getClient: async (clientId) => {
+        const client = await this.getClient(clientId);
+        return client && this.redirectsAllowed(client.redirect_uris) ? client : undefined;
+      },
       registerClient: (client) => {
         const method = client.token_endpoint_auth_method;
         if (method !== undefined && !SUPPORTED_AUTH_METHODS.includes(method)) {
           throw new InvalidClientMetadataError(
             `token_endpoint_auth_method must be one of: ${SUPPORTED_AUTH_METHODS.join(', ')}`,
           );
+        }
+        if (!this.redirectsAllowed(client.redirect_uris)) {
+          throw new InvalidClientMetadataError('redirect_uris are not allowed by this server');
         }
         const full = {
           ...client,
@@ -79,6 +92,42 @@ export class InboxmuxAuthProvider implements OAuthServerProvider {
         return full;
       },
     };
+  }
+
+  private redirectsAllowed(uris: string[]): boolean {
+    if (this.allowedRedirectOrigins.length === 0) return true;
+    return uris.every((uri) => this.allowedRedirectOrigins.includes(redirectOrigin(uri)));
+  }
+
+  listGrants(userId: number) {
+    const rows = this.db
+      .prepare(
+        `SELECT t.family_id, t.client_id, MAX(t.expires_at) AS expires_at, c.metadata FROM tokens t
+         LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+         WHERE t.user_id = ? AND t.kind = 'refresh' AND t.rotated_at IS NULL AND t.expires_at >= ?
+         GROUP BY t.family_id, t.client_id, c.metadata
+         ORDER BY expires_at DESC`,
+      )
+      .all(userId, now()) as Array<{
+      family_id: string;
+      client_id: string;
+      expires_at: number;
+      metadata: string | null;
+    }>;
+    return rows.map((r) => {
+      const metadata = r.metadata ? (JSON.parse(r.metadata) as OAuthClientInformationFull) : undefined;
+      return {
+        familyId: r.family_id,
+        clientId: r.client_id,
+        clientName: metadata?.client_name,
+        redirectUris: metadata?.redirect_uris ?? [],
+        lastRefreshedAt: new Date((r.expires_at - REFRESH_TTL) * 1000),
+      };
+    });
+  }
+
+  revokeGrant(userId: number, familyId: string) {
+    this.db.prepare('DELETE FROM tokens WHERE family_id = ? AND user_id = ?').run(familyId, userId);
   }
 
   private async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {

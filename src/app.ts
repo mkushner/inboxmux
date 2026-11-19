@@ -30,6 +30,7 @@ export function createApp(db: DB, config: Config, keyring: Keyring, options: App
     db,
     mcpUrl,
     config.OWNER_EMAILS,
+    config.ALLOWED_REDIRECT_ORIGINS,
     options.fetchClientMetadata ?? fetchClientMetadata,
   );
 

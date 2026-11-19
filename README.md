@@ -85,6 +85,7 @@ How changes are tracked: Gmail uses `historyId`, falling back to a time window w
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | OAuth client for owner sign-in and Gmail |
 | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | no | Enables Microsoft accounts |
 | `MICROSOFT_TENANT` | no | `common` (default), `organizations`, or a tenant id |
+| `ALLOWED_REDIRECT_ORIGINS` | no | Comma-separated origins MCP clients may redirect to, for example `https://claude.ai,https://claude.com`. Loopback origins match any port. If empty, any client may connect after you approve it. |
 | `DATABASE_PATH` | no | SQLite file. The default is `./data/inboxmux.db`, or `/data/inboxmux.db` in Docker. |
 | `PORT` | no | HTTP port, default `8080` |
 
