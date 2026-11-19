@@ -1,0 +1,4 @@
+{$INBOXMUX_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy inboxmux:8080
+}

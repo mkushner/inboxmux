@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+plans
+test
+.env
+.git
+*.db
+*.db-*
